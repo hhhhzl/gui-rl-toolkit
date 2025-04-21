@@ -16,3 +16,6 @@ from rlf.algos.off_policy.sac import SAC
 from rlf.algos.on_policy.ppo import PPO
 from rlf.algos.on_policy.reinforce import REINFORCE
 from rlf.algos.on_policy.sarsa import SARSA
+from rlf.algos.il.dp import DiffPolicy
+from rlf.algos.il.pwil import PWIL
+from rlf.algos.il.wail import WAIL

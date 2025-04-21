@@ -199,6 +199,36 @@ def wass_grad_pen(
     return grad_pen
 
 
+def wass_distance(p_dist, q_dist, eps=1e-8, n_iters=5):
+    """
+    Approximate the Wasserstein distance between two distributions using the Sinkhorn algorithm.
+
+    Parameters:
+        p_dist (torch.Tensor): The first distribution.
+        q_dist (torch.Tensor): The second distribution.
+        eps (float): A small positive value to stabilize the computation.
+        n_iters (int): Number of iterations for Sinkhorn algorithm.
+
+    Returns:
+        torch.Tensor: Approximated Wasserstein distance between p_dist and q_dist.
+    """
+    n_points = p_dist.shape[0]
+    # Initializing the scaling factors for the two distributions
+    u = torch.ones(n_points, device=p_dist.device) / n_points
+    v = torch.ones(n_points, device=p_dist.device) / n_points
+
+    # Sinkhorn iterations
+    for i in range(n_iters):
+        v = q_dist / (torch.sum(p_dist * u, dim=1, keepdim=True) + eps)
+        u = 1.0 / (torch.sum(p_dist * v, dim=1, keepdim=True) + eps)
+
+    # Compute the optimal transport matrix and the Wasserstein distance
+    transport_matrix = u * (p_dist * v.t())
+    wass_distance_val = torch.sum(transport_matrix * q_dist, dim=1, keepdim=True)
+
+    return wass_distance_val
+
+
 class RunningMeanAndVar(nn.Module):
     """
     Adapted from https://github.com/facebookresearch/habitat-lab/blob/bc85d0961cef3b4a08bc9263869606109fb6ff0a/habitat_baselines/rl/ddppo/policy/running_mean_and_var.py#L13
