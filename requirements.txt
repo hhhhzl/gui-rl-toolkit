@@ -19,3 +19,4 @@ seaborn
 scikit-image
 pytest
 gdown
+attr==0.3.2
