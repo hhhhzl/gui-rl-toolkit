@@ -19,4 +19,5 @@ seaborn
 scikit-image
 pytest
 gdown
-attr==0.3.2
+attrs==25.3.0
+ipdb

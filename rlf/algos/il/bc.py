@@ -1,5 +1,4 @@
 import copy
-from collections import defaultdict
 
 import gym
 import numpy as np
@@ -9,7 +8,6 @@ import torch
 import torch.nn.functional as F
 from rlf.algos.il.base_il import BaseILAlgo
 from rlf.args import str2bool
-from rlf.rl.loggers import LoggerChoices
 from rlf.storage.base_storage import BaseStorage
 from tqdm import tqdm
 
@@ -56,10 +54,15 @@ class BehavioralCloning(BaseILAlgo):
         )
         if isinstance(x, dict):
             x["observation"] = obs_x
-        return x
+            return x
+        else:
+            return obs_x
 
     def get_num_updates(self):
-        return self.args.n_updates
+        if self.exp_generator is None:
+            return len(self.expert_train_loader) * self.args.bc_num_epochs
+        else:
+            return self.args.exp_gen_num_trans * self.args.bc_num_epochs
 
     def get_completed_update_steps(self, num_updates):
         return num_updates * self.args.traj_batch_size
@@ -73,25 +76,22 @@ class BehavioralCloning(BaseILAlgo):
         prev_num = 0
 
         # First BC
-        with tqdm(total=self.args.bc_pre_num_epochs) as pbar:
-            while self.num_epochs < self.args.bc_pre_num_epochs:
+        with tqdm(total=self.args.bc_num_epochs) as pbar:
+            while self.num_epochs < self.args.bc_num_epochs:
                 super().pre_update(self.num_bc_updates)
                 log_vals = self._bc_step(False)
                 action_loss.append(log_vals["_pr_action_loss"])
 
                 pbar.update(self.num_epochs - prev_num)
                 prev_num = self.num_epochs
-        if (
-            self.args.bc_log_interval != -1
-            and update_iter % self.args.bc_log_interval == 0
-        ):
-            rutils.plot_line(
-                action_loss,
-                f"action_loss_{update_iter}.png",
-                self.args.vid_dir,
-                self.args.log_type == LoggerChoices.WANDB,
-                self.get_completed_update_steps(self.update_i),
-            )
+
+        rutils.plot_line(
+            action_loss,
+            f"action_loss_{update_iter}.png",
+            self.args.vid_dir,
+            not self.args.no_wb,
+            self.get_completed_update_steps(self.update_i),
+        )
         self.num_epochs = 0
 
     def pre_update(self, cur_update):
@@ -99,9 +99,14 @@ class BehavioralCloning(BaseILAlgo):
         pass
 
     def _bc_step(self, decay_lr):
+        import ipdb; ipdb.set_trace
         if decay_lr:
             super().pre_update(self.num_bc_updates)
         expert_batch = self._get_next_data()
+
+        if expert_batch is None:
+            self._reset_data_fetcher()
+            expert_batch = self._get_next_data()
 
         states, true_actions = self._get_data(expert_batch)
 
@@ -164,16 +169,9 @@ class BehavioralCloning(BaseILAlgo):
 
             return np.mean(losses)
 
-    def update(self, storage):
+    def update(self, storage, args, beginning, t):
         top_log_vals = super().update(storage)
-
-        all_log_vals = defaultdict(list)
-        for _ in range(self.args.bc_num_mini_batches):
-            step_log_vals = self._bc_step(True)
-            for k, v in step_log_vals.items():
-                all_log_vals[k].append(v)
-
-        log_vals = {k: np.mean(all_log_vals[k]) for k in all_log_vals}
+        log_vals = self._bc_step(True)
         log_vals.update(top_log_vals)
         return log_vals
 
@@ -204,23 +202,6 @@ class BehavioralCloning(BaseILAlgo):
 
         #########################################
         # New args
-        parser.add_argument(
-            "--n-updates",
-            type=int,
-            default=1,
-            help="""
-                The number of updates to update the policy
-                """,
-        )
-        parser.add_argument(
-            "--bc-num-mini-batches",
-            type=int,
-            default=1,
-            help="""
-                Number mini batches per update
-                """,
-        )
-        parser.add_argument("--bc-log-interval", type=int, default=1)
-        parser.add_argument("--bc-pre-num-epochs", type=int, default=1)
+        parser.add_argument("--bc-num-epochs", type=int, default=1)
         parser.add_argument("--bc-state-norm", type=str2bool, default=False)
         parser.add_argument("--bc-noise", type=float, default=None)
