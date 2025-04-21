@@ -62,7 +62,7 @@ def make_env(
         if str(env.__class__.__name__).find("TimeLimit") >= 0:
             env = TimeLimitMask(env)
 
-        env.seed(local_seed)
+        # env.seed(local_seed)
         if hasattr(env.action_space, "seed"):
             env.action_space.seed(local_seed)
 
