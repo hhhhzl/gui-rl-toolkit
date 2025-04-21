@@ -16,8 +16,8 @@ from rlf.exp_mgr import config_mgr
 from rlf.il.traj_mgr import TrajSaver
 from rlf.rl.checkpointer import Checkpointer
 from rlf.rl.envs import make_vec_envs
-from rlf.rl.loggers import BaseLogger
-from rlf.rl.loggers.get_logger import LoggerChoices, get_logger
+from rlf.rl.evaluation import full_eval
+from rlf.rl.loggers.base_logger import BaseLogger
 from rlf.rl.runner import Runner
 
 
@@ -40,6 +40,7 @@ except:
     class BlankTrainable:
         def __init__(self, config, logger_creator):
             pass
+
 
     MasterClass = BlankTrainable
 
@@ -77,20 +78,20 @@ class RunSettings(MasterClass):
         :return: The location to a config file that holds whatever information
             about the project.
         """
-        return osp.join(self.working_dir, "config.yaml")
+        return osp.join(self.working_dir, "configs/wandb.yaml")
 
-    def create_traj_saver(self, save_path: str, args) -> rlf.il.TrajSaver:
+    def create_traj_saver(self, save_path: str) -> rlf.il.TrajSaver:
         """
         How trajectories should be saved if desired.
-        :save_path: directory to write the trajectories to.
+        :save_path: file name to write the trajectories to
         """
-        return TrajSaver(save_path, is_stochastic_policy=not args.deterministic_policy)
+        return TrajSaver(save_path)
 
     def get_add_args(self, parser):
         pass
 
-    def get_logger(self, args):
-        return get_logger(args.log_type)
+    def get_logger(self):
+        return BaseLogger()
 
     def get_add_ray_config(self, config):
         return config
@@ -118,19 +119,10 @@ class RunSettings(MasterClass):
     def get_parser(self):
         return get_default_parser()
 
-    def add_argument_overrides(self, parser) -> None:
-        """
-        Modify the argument parser to override default arguments. Provides a
-        different set of arguments from `self.get_add_args` which are saved to
-        `self.base_args`.
-        """
-        pass
-
     def get_args(self, algo, policy):
         parser = self.get_parser()
         algo.get_add_args(parser)
         policy.get_add_args(parser)
-        self.add_argument_overrides(parser)
 
         if self._preset_args is None:
             args, rest = parser.parse_known_args()
@@ -176,15 +168,13 @@ class RunSettings(MasterClass):
             self.working_dir = add_args["cwd"]
 
         config_mgr.init(self.get_config_file())
-        args.log_type = LoggerChoices(args.log_type)
         if args.ray:
             # No logger when ray is tuning
             log = BaseLogger()
         else:
             if ray_create:
                 return None, None
-            log = self.get_logger(args)
-
+            log = self.get_logger()
         for k, v in vars(self.base_args).items():
             if k not in args:
                 setattr(args, k, v)
@@ -197,12 +187,6 @@ class RunSettings(MasterClass):
             torch.autograd.set_detect_anomaly(True)
         return args, log
 
-    def on_env_create(self, alg_env_settings, env_interface):
-        """
-        Called after the env is created but before the policy and algo are created.
-        """
-        pass
-
     def create_runner(self, add_args={}, ray_create=False) -> rlf.Runner:
         """
         Gets the runner used for training.
@@ -213,15 +197,15 @@ class RunSettings(MasterClass):
         args, log = self._sys_setup(add_args, ray_create, algo, policy)
         if args is None:
             return None
-
         env_interface = self._get_env_interface(args)
 
         checkpointer = Checkpointer(args)
 
         alg_env_settings = algo.get_env_settings(args)
-
+        print("args.eval_only:", args.eval_only)
+        # import ipdb; ipdb.set_trace()
         # Setup environment
-        envs = make_vec_envs(
+        _, envs = make_vec_envs(
             args.env_name,
             args.seed,
             args.num_processes,
@@ -231,7 +215,8 @@ class RunSettings(MasterClass):
             env_interface,
             args,
             alg_env_settings,
-            set_eval=args.eval_only,
+            # set_eval=args.eval_only,
+            False
         )
 
         rutils.pstart_sep()
@@ -240,8 +225,6 @@ class RunSettings(MasterClass):
             print("Action range:", (envs.action_space.low, envs.action_space.high))
         print("Observation space", envs.observation_space)
         rutils.pend_sep()
-
-        self.on_env_create(alg_env_settings, env_interface)
 
         # Setup policy
         policy_args = (envs.observation_space, envs.action_space, args)
@@ -252,10 +235,9 @@ class RunSettings(MasterClass):
 
         # Setup algo
         algo.set_get_policy(self.get_policy, policy_args)
-        algo.init(policy, args)
         algo.set_env_ref(envs)
-
-        policy.set_algo_ref(algo)
+        # import ipdb; ipdb.set_trace()
+        algo.init(policy, args)
 
         # Setup storage buffer
         storage = algo.get_storage_buffer(policy, envs, args)
@@ -265,17 +247,13 @@ class RunSettings(MasterClass):
         storage.init_storage(envs.reset())
         storage.set_traj_done_callback(algo.on_traj_finished)
 
+        simple_env = ['Sine-v0', 'SCurve-v0', 'Dalmatian-v0', 'Triangle-v0', 'Triangle-v2', 'Rectangle-v0',
+                      'Rectangle-v1']
+
         runner = self._get_runner_cls(algo, policy)(
-            envs,
-            storage,
-            policy,
-            log,
-            env_interface,
-            checkpointer,
-            args,
-            algo,
-            create_traj_saver_fn=self.create_traj_saver,
+            envs, storage, policy, log, env_interface, checkpointer, args, algo
         )
+
         return runner
 
     def _get_runner_cls(self, algo, policy):
