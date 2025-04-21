@@ -4,9 +4,9 @@ import numpy as np
 from gym import spaces, utils
 
 
-class GUIEnv(gym.Env):
-    def __init__(self):
-        pass
+class GUIEnv(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
 
     def step(self, a):
         pass
@@ -14,10 +14,10 @@ class GUIEnv(gym.Env):
     def _get_obs(self):
         pass
 
-    def relabel_ob(self, ob_current, ob_future):
+    def relabel_ob(self):
         pass
 
-    def is_reached(self, ob):
+    def is_reached(self):
         pass
 
     def reset_model(self):
@@ -29,7 +29,7 @@ class GUIEnv(gym.Env):
     def viewer_setup(self):
         pass
 
-    def touching(self, geom1_name, geom2_name):
+    def touching(self):
         pass
 
     def seed(self):
